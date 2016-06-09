@@ -1,8 +1,8 @@
-﻿// Accord Machine Learning Library
+// Accord Machine Learning Library
 // The Accord.NET Framework
 // http://accord-framework.net
 //
-// Copyright © César Souza, 2009-2016
+// Copyright © César Souza, 2009-2015
 // cesarsouza at gmail.com
 //
 //    This library is free software; you can redistribute it and/or
@@ -70,8 +70,18 @@ namespace Accord.MachineLearning.DecisionTrees
         /// <summary>
         ///   The node compares for less-than or equality.
         /// </summary>
-        LessThanOrEqual
-    }
+        LessThanOrEqual,
+
+        /// <summary>
+        ///   The node compares for less-than or equality.
+        /// </summary>
+        GroupEqual,
+
+        /// <summary>
+        ///   The node compares for less-than or equality.
+        /// </summary>
+        GroupNotEqual
+     }
 
     /// <summary>
     ///   Extension methods for <see cref="ComparisonKind"/> enumeration values.
@@ -111,6 +121,11 @@ namespace Accord.MachineLearning.DecisionTrees
 
                 case ComparisonKind.NotEqual:
                     return "!=";
+
+                case ComparisonKind.GroupEqual:
+                    return "==";
+                case ComparisonKind.GroupNotEqual:
+                    return "!=";                
 
                 default:
                     throw new InvalidOperationException("Unexpected node comparison type.");
