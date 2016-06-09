@@ -1,8 +1,8 @@
-﻿// Accord Machine Learning Library
+// Accord Machine Learning Library
 // The Accord.NET Framework
 // http://accord-framework.net
 //
-// Copyright © César Souza, 2009-2016
+// Copyright © César Souza, 2009-2015
 // cesarsouza at gmail.com
 //
 //    This library is free software; you can redistribute it and/or
@@ -62,6 +62,14 @@ namespace Accord.MachineLearning.DecisionTrees
         public double? Value { get; set; }
 
         /// <summary>
+        ///   Gets or sets the value this node responds to
+        ///   whenever this node acts as a child node. This
+        ///   value is set only when the node has a parent.
+        /// </summary>
+        /// 
+        public List<double?> Values { get; set; }
+
+        /// <summary>
         ///   Gets or sets the type of the comparison which
         ///   should be done against <see cref="Value"/>.
         /// </summary>
@@ -74,6 +82,13 @@ namespace Accord.MachineLearning.DecisionTrees
         /// </summary>
         /// 
         public int? Output { get; set; }
+
+        /// <summary>
+        ///   If this is a leaf node, gets or sets the output
+        ///   value to be decided when this node is reached.
+        /// </summary>
+        /// 
+        public int ID { get; set; }
 
         /// <summary>
         ///   If this is not a leaf node, gets or sets the collection
@@ -139,7 +154,7 @@ namespace Accord.MachineLearning.DecisionTrees
             get { return Branches == null || Branches.Count == 0; }
         }
 
-
+        internal int nbElements;
 
         /// <summary>
         ///   Computes whether a value satisfies
@@ -173,42 +188,26 @@ namespace Accord.MachineLearning.DecisionTrees
                 case ComparisonKind.NotEqual:
                     return (x != Value);
 
-                default:
-                    throw new InvalidOperationException();
-            }
-        }
+                case ComparisonKind.GroupEqual:
+                    foreach (double? value in Values)
+                    {
+                        if (value == x)
+                            return true;
+                    }
+                    return false;
 
-        /// <summary>
-        ///   Computes whether a value satisfies
-        ///   the condition imposed by this node.
-        /// </summary>
-        /// 
-        /// <param name="x">The value x.</param>
-        /// 
-        /// <returns><c>true</c> if the value satisfies this node's
-        /// condition; otherwise, <c>false</c>.</returns>
-        /// 
-        public bool Compute(int x)
-        {
-            switch (Comparison)
-            {
-                case ComparisonKind.Equal:
-                    return (x == Value);
-
-                case ComparisonKind.GreaterThan:
-                    return (x > Value);
-
-                case ComparisonKind.GreaterThanOrEqual:
-                    return (x >= Value);
-
-                case ComparisonKind.LessThan:
-                    return (x < Value);
-
-                case ComparisonKind.LessThanOrEqual:
-                    return (x <= Value);
-
-                case ComparisonKind.NotEqual:
-                    return (x != Value);
+                case ComparisonKind.GroupNotEqual:
+                    bool ok = true;
+                    foreach (double? value in Values)
+                    {
+                        if (value == x)
+                        {
+                            ok = false;
+                            break;
+                        }
+                            
+                    }
+                    return ok;
 
                 default:
                     throw new InvalidOperationException();
@@ -255,14 +254,113 @@ namespace Accord.MachineLearning.DecisionTrees
 
             String op = ComparisonExtensions.ToString(Comparison);
 
-            String value;
-            if (codebook != null && Value.HasValue && codebook.Columns.Contains(name))
+            String value = "";
+            if (Values != null && Values.Count != 0)
+            {
+                foreach (double? a in Values)
+                {
+                    if (codebook != null && a.HasValue && codebook.Columns.Contains(name))
+                        value += " " + codebook.Translate(name, (int)a.Value);
+                    else
+                        value += " " + a.ToString();
+                }
+            }
+
+            else if (codebook != null && Value.HasValue && codebook.Columns.Contains(name))
                 value = codebook.Translate(name, (int)Value.Value);
 
             else value = Value.ToString();
 
 
             return String.Format("{0} {1} {2}", name, op, value);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="codebook"></param>
+        /// <param name="libelleCible"></param>
+        /// <param name="nombreTotal"></param>
+        /// <returns></returns>
+        public string[] ToJSVisNode(Codification codebook, string libelleCible, int nombreTotal)
+        {
+            string[] js = {"",""};
+            if (this.IsRoot == false)
+                if (this.Comparison != ComparisonKind.Equal && this.Comparison != ComparisonKind.GroupEqual)
+                    js[0] = "{from: " + this.parent.ID + ", to: " + this.ID + ",label: '" + this.ToString().Replace("'", "\\'") + " \\n \\n pourcentage total: " + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "%'},";
+                else
+                    js[0] = "{from: " + this.parent.ID + ", to: " + this.ID + ",label: '" + this.ToString(codebook).Replace("'", "\\'") + " \\n \\n pourcentage total: " + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "%'},";
+            else
+                js[0] = "";
+
+            if (!this.IsRoot)
+                if (this.IsLeaf)
+                    if(this.Output != null)
+                        js[1] = "{id: " + this.ID + "," + " label: '" + codebook.Translate(libelleCible, (int)this.Output).Replace("'", "\\'") + " \\n pourcentage: " + Math.Round((double)this.nbElements / this.parent.nbElements * 100, 2) + "% '},";
+                    else
+                        js[1] = "{id: " + this.ID + "," + " label: 'vide \\n pourcentage: " + Math.Round((double)this.nbElements / this.parent.nbElements * 100, 2) + "% '},";
+                else
+                    js[1] = "{id: " + this.ID + "," + " label: '" + this.Branches.Attribute.Name.ToString().Replace("'", "\\'") + " \\n pourcentage: " + Math.Round((double)this.nbElements / this.parent.nbElements * 100, 2) + "%'},";
+            else
+                js[1] = "{id: " + this.ID + "," + " label: '" + this.Branches.Attribute.Name.ToString().Replace("'", "\\'") + " \\n pourcentage: 100%'},";
+    
+            return js;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="codebook"></param>
+        /// <param name="libelleCible"></param>
+        /// <param name="nombreTotal"></param>
+        /// <param name="tabColor"></param>
+        /// <param name="isSunburst"></param>
+        /// <returns></returns>
+        public string ToJSJitNode(Codification codebook, string libelleCible, int nombreTotal, string[] tabColor,bool isSunburst)
+        {
+            string color;
+            if (this.ID % 2 == 0)
+                color = "\"$color\":\"#CDCDCD\"";
+            else
+                color = "\"$color\":\"#545454\"";
+
+            string js = "";
+            double value;
+            if (!this.IsRoot)
+                if (Math.Round((double)this.nbElements / this.parent.nbElements * 100, 2) < 20)
+                    value = 20;
+                else
+                    value = Math.Round((double)this.nbElements / this.parent.nbElements * 100, 2);
+            else
+                value = 100;
+
+            if(!this.IsLeaf)
+                if (this.IsRoot)
+                    js = "\"id\":\"" + this.ID + "\",\"name\":\"root\"";
+                else
+                    if (this.Comparison != ComparisonKind.Equal && this.Comparison != ComparisonKind.GroupEqual)
+                        if (!isSunburst)
+                            js = "\"id\":\"" + this.ID + "\",\"name\":\"" + this.ToString().Replace("'", "\\'") + " <br/> pourcentage: " + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "%\", \"data\":{\"$dim\":" + value + " }";
+                        else
+                            js = "\"id\":\"" + this.ID + "\"," + "\"name\":\"" + this.ToString().Replace("'", "\\'") + "\", \"data\":{" + color + ",\"$angularWidth\":" + value + ",\"pourcent\":\"" + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "\" }";
+                    else
+                        if (!isSunburst)
+                            js = "\"id\":\"" + this.ID + "\",\"name\":\"" + this.ToString(codebook).Replace("'", "\\'") + " <br/> pourcentage: " + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "%\", \"data\":{\"$dim\":" + value + " }";
+                        else
+                            js = "\"id\":\"" + this.ID + "\"," + "\"name\":\"" + this.ToString(codebook).Replace("'", "\\'") + "\", \"data\":{" + color + ",\"$angularWidth\":" + value + ",\"pourcent\":\"" + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "\" }";
+            else
+                if (this.Output != null)
+                    if (this.Comparison != ComparisonKind.Equal && this.Comparison != ComparisonKind.GroupEqual)
+                        if (!isSunburst)
+                            js = "\"id\":\"" + this.ID + "\",\"name\":\"" + this.ToString().Replace("'", "\\'") + " <br/> pourcentage: " + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "%\", \"children\":[{\"id\":\"test " + this.ID + "\", \"name\": \"" + codebook.Translate(libelleCible, (int)this.Output).Replace("'", "\\'") + "\"}], \"data\":{\"$dim\":" + value + " } ";
+                        else
+                            js = "\"id\":\"" + this.ID + "\"" + ",\"name\":\"" + this.ToString().Replace("'", "\\'") + "\"," + "\"children\":[{\"id\":\"test " + this.ID + "\", \"name\": \"" + codebook.Translate(libelleCible, (int)this.Output).Replace("'", "\\'") + "\",\"data\":{" + tabColor[(int)this.Output] + "}}]," + "\"data\":{" + color + ",\"$angularWidth\":" + value + ",\"pourcent\":\"" + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "\" } ";
+                    else
+                        if (!isSunburst)
+                            js = "\"id\":\"" + this.ID + "\",\"name\":\"" + this.ToString(codebook).Replace("'", "\\'") + " <br/> pourcentage: " + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "%\", \"children\":[{\"id\":\"test " + this.ID + "\", \"name\": \"" + codebook.Translate(libelleCible, (int)this.Output).Replace("'", "\\'") + "\"}], \"data\":{\"$dim\":" + value + " }";
+                        else
+                            js = "\"id\":\"" + this.ID + "\"" + ",\"name\":\"" + this.ToString(codebook).Replace("'", "\\'") + "\"," + "\"children\":[{\"id\":\"test " + this.ID + "\", \"name\": \"" + codebook.Translate(libelleCible, (int)this.Output).Replace("'", "\\'") + "\",\"data\":{" + tabColor[(int)this.Output] + "}}]," + "\"data\":{" + color + ",\"$angularWidth\":" + value + ",\"pourcent\":\"" + Math.Round((double)this.nbElements / nombreTotal * 100, 2) + "\" }";
+            return js;
         }
 
         /// <summary>
