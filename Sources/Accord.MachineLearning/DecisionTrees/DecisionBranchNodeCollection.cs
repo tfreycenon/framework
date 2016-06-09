@@ -1,8 +1,8 @@
-﻿// Accord Machine Learning Library
+// Accord Machine Learning Library
 // The Accord.NET Framework
 // http://accord-framework.net
 //
-// Copyright © César Souza, 2009-2016
+// Copyright © César Souza, 2009-2015
 // cesarsouza at gmail.com
 //
 //    This library is free software; you can redistribute it and/or
@@ -25,6 +25,7 @@ namespace Accord.MachineLearning.DecisionTrees
     using System;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
+    using Accord.Statistics.Filters;
 
     /// <summary>
     ///   Collection of decision nodes. A decision branch specifies the index of
@@ -114,6 +115,40 @@ namespace Accord.MachineLearning.DecisionTrees
 
             this.AttributeIndex = attributeIndex;
             this.owner = nodes[0].Parent;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="codebook"></param>
+        /// <param name="libelleCible"></param>
+        /// <param name="nombreTotal"></param>
+        /// <param name="tabColor"></param>
+        /// <param name="isSunburst"></param>
+        /// <returns></returns>
+        public string ToJitJSBranche(Codification codebook,string libelleCible,int nombreTotal ,string[] tabColor,bool isSunburst)
+        {
+            string children = "children:[\r\n";
+            for (int i = 0; i < this.Count;i++ )
+            {
+                children += "{";
+                children += this[i].ToJSJitNode(codebook, libelleCible, nombreTotal, tabColor, isSunburst);
+                if (this[i].Branches != null && this[i].Branches.Count != 0)
+                {
+                    children += ",";
+                    children += this[i].Branches.ToJitJSBranche(codebook, libelleCible, nombreTotal, tabColor, isSunburst);
+                }
+                if (this[i].IsLeaf)
+                    children += "}";
+                if (i != this.Count - 1)
+                {
+                    children += ",\r\n";
+                }
+
+            }
+            children += "]";
+            children += "}";
+            return children;
         }
 
         /// <summary>
