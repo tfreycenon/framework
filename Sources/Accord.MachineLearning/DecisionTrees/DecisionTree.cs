@@ -1,8 +1,8 @@
-﻿// Accord Machine Learning Library
+// Accord Machine Learning Library
 // The Accord.NET Framework
 // http://accord-framework.net
 //
-// Copyright © César Souza, 2009-2016
+// Copyright © César Souza, 2009-2015
 // cesarsouza at gmail.com
 //
 //    This library is free software; you can redistribute it and/or
@@ -26,12 +26,15 @@ namespace Accord.MachineLearning.DecisionTrees
     using System.Collections.Generic;
     using System.IO;
     using System.Linq.Expressions;
+    using System.Linq;
+
     using System.Reflection;
     using System.Reflection.Emit;
     using System.Runtime.Serialization;
     using System.Runtime.Serialization.Formatters.Binary;
     using Accord.MachineLearning.DecisionTrees.Rules;
-    using Accord.Math;
+    using Accord.Statistics.Filters;
+    using System.Text;
 
     /// <summary>
     ///   Decision tree.
@@ -49,30 +52,33 @@ namespace Accord.MachineLearning.DecisionTrees
     /// <seealso cref="Learning.C45Learning"/>
     ///
     [Serializable]
-    [SerializationBinder(typeof(DecisionTree.DecisionTreeBinder))]
-    public class DecisionTree : MulticlassClassifierBase, IEnumerable<DecisionNode>
+    public class DecisionTree : IEnumerable<DecisionNode>
     {
-        private DecisionNode root;
-        private DecisionVariableCollection attributes;
-
         /// <summary>
         ///   Gets or sets the root node for this tree.
         /// </summary>
         /// 
-        public DecisionNode Root
-        {
-            get { return root; }
-            set { root = value; }
-        }
+        public DecisionNode Root { get; set; }
 
         /// <summary>
         ///   Gets the collection of attributes processed by this tree.
         /// </summary>
         /// 
-        public DecisionVariableCollection Attributes
-        {
-            get { return attributes; }
-        }
+        public DecisionVariableCollection Attributes { get; private set; }
+
+        /// <summary>
+        ///   Gets the number of distinct output
+        ///   classes classified by this tree.
+        /// </summary>
+        /// 
+        public int OutputClasses { get; private set; }
+
+        /// <summary>
+        ///   Gets the number of input attributes
+        ///   expected by this tree.
+        /// </summary>
+        /// 
+        public int InputCount { get; private set; }
 
         /// <summary>
         ///   Creates a new <see cref="DecisionTree"/> to process
@@ -96,11 +102,28 @@ namespace Accord.MachineLearning.DecisionTrees
                     throw new ArgumentException("Attribute " + i + " is a constant.");
 
 
-            this.attributes = new DecisionVariableCollection(inputs);
-            this.NumberOfInputs = inputs.Count;
-            this.NumberOfOutputs = classes;
+            this.Attributes = new DecisionVariableCollection(inputs);
+            this.InputCount = inputs.Count;
+            this.OutputClasses = classes;
         }
 
+
+        /// <summary>
+        ///   Computes the decision for a given input.
+        /// </summary>
+        /// 
+        /// <param name="input">The input data.</param>
+        /// 
+        /// <returns>A predicted class for the given input.</returns>
+        /// 
+        public int Compute(int[] input)
+        {
+            double[] x = new double[input.Length];
+            for (int i = 0; i < input.Length; i++)
+                x[i] = input[i];
+
+            return Compute(x);
+        }
 
         /// <summary>
         ///   Computes the tree decision for a given input.
@@ -110,25 +133,13 @@ namespace Accord.MachineLearning.DecisionTrees
         /// 
         /// <returns>A predicted class for the given input.</returns>
         /// 
-        public override int Decide(double[] input)
+        public int Compute(double[] input)
         {
-            return decide(input, Root);
-        }
+            if (Root == null)
+                throw new InvalidOperationException();
 
-        /// <summary>
-        ///   Computes the tree decision for a given input.
-        /// </summary>
-        /// 
-        /// <param name="input">The input data.</param>
-        /// 
-        /// <returns>A predicted class for the given input.</returns>
-        /// 
-        public override int Decide(int[] input)
-        {
-            return decide(input, Root);
+            return Compute(input, Root);
         }
-
-        
 
         /// <summary>
         ///   Computes the tree decision for a given input.
@@ -139,19 +150,14 @@ namespace Accord.MachineLearning.DecisionTrees
         /// 
         /// <returns>A predicted class for the given input.</returns>
         /// 
-        public int Decide(double[] input, DecisionNode subtree)
+        public int Compute(double[] input, DecisionNode subtree)
         {
-            if (subtree == null)
+            if (subtree == null) 
                 throw new ArgumentNullException("subtree");
 
-            if (subtree.Owner != this)
+            if (subtree.Owner != this) 
                 throw new ArgumentException("The node does not belong to this tree.", "subtree");
 
-            return decide(input, subtree);
-        }
-
-        private static int decide(double[] input, DecisionNode subtree)
-        {
             DecisionNode current = subtree;
 
             // Start reasoning
@@ -196,52 +202,16 @@ namespace Accord.MachineLearning.DecisionTrees
                 + "the tree is expecting discrete inputs, but it was given only real values.");
         }
 
-        private static int decide(int[] input, DecisionNode subtree)
+
+
+        [OnDeserialized]
+        private void OnDeserialized(StreamingContext context)
         {
-            DecisionNode current = subtree;
-
-            // Start reasoning
-            while (current != null)
+            foreach (DecisionNode node in this)
             {
-                // Check if this is a leaf
-                if (current.IsLeaf)
-                {
-                    // This is a leaf node. The decision
-                    // process thus should stop here.
-
-                    return (current.Output.HasValue) ? current.Output.Value : -1;
-                }
-
-                // This node is not a leaf. Continue the
-                // decision process following the children
-
-                // Get the next attribute to guide reasoning
-                int attribute = current.Branches.AttributeIndex;
-
-                // Check which child is responsible for dealing
-                // which the particular value of the attribute
-                DecisionNode nextNode = null;
-
-                foreach (DecisionNode branch in current.Branches)
-                {
-                    if (branch.Compute(input[attribute]))
-                    {
-                        // This is the child node responsible for dealing
-                        // which this particular attribute value. Choose it
-                        // to continue reasoning.
-
-                        nextNode = branch; break;
-                    }
-                }
-
-                current = nextNode;
+                node.Owner = this;
             }
-
-            // Normal execution should not reach here.
-            throw new InvalidOperationException("The tree is degenerated. This is often a sign that "
-                + "the tree is expecting discrete inputs, but it was given only real values.");
         }
-
 
 
         /// <summary>
@@ -380,7 +350,7 @@ namespace Accord.MachineLearning.DecisionTrees
 #endif
 
 
-
+     
 
         /// <summary>
         ///   Generates a C# class implementing the decision tree.
@@ -443,8 +413,110 @@ namespace Accord.MachineLearning.DecisionTrees
             return maxHeight;
         }
 
+        /// <summary>
+        ///   return the vis javascript for this tree
+        /// </summary>
+        /// 
+        /// <returns>The tree's height.</returns>
+        /// 
+        public string ToJSVisTree(Codification codebook, string libelleCible)
+        {
+            StringBuilder builderNode = new StringBuilder();
+            builderNode.AppendLine("var nodes = new vis.DataSet([");
+            StringBuilder builderBranche = new StringBuilder();
+            builderBranche.AppendLine("var edges = new vis.DataSet([");
+            int nombreTotal = Root.nbElements;
+            string[] tab;
+            foreach (DecisionNode node in this.Traverse(DecisionTreeTraversal.DepthFirst))
+            {
+                tab = node.ToJSVisNode(codebook,libelleCible,nombreTotal);
+                builderNode.AppendLine(tab[1]);
+                builderBranche.AppendLine(tab[0]);
+    
+            }
 
-        #region Obsolete
+            builderNode = builderNode.Remove(builderNode.Length - 3, 1);
+            builderNode.AppendLine("]);");
+
+            builderBranche = builderBranche.Remove(builderBranche.Length - 3, 1);
+            builderBranche.AppendLine("]);");
+            builderBranche.AppendLine("");
+
+            StringBuilder final = new StringBuilder();
+            final.AppendLine(builderNode.ToString());
+            final.AppendLine("");
+            final.AppendLine(builderBranche.ToString());
+            final.AppendLine("");
+
+            List<int> max = new List<int>();
+            var listeNodeFils = this.Traverse(DecisionTreeTraversal.DepthFirst).GroupBy( x => x.GetHeight());
+            foreach (var group in listeNodeFils)
+            {
+                max.Add(group.OrderByDescending(x => x.nbElements).First().ID);
+            }
+
+            StringBuilder miseEnRelief = new StringBuilder();
+            miseEnRelief.Append("var tab =[");
+            foreach (int m in max)
+            {
+                miseEnRelief.Append(m + ",");
+            }
+
+            miseEnRelief = miseEnRelief.Remove(miseEnRelief.Length - 1, 1);
+            miseEnRelief.Append("];");
+            miseEnRelief.AppendLine("");
+            miseEnRelief.AppendLine("for(var i = 0; i < tab.length;i++){");
+            miseEnRelief.AppendLine("	nodes.getDataSet()._data[tab[i]]['color'] = 'rgba(46,204,113,1.0)';");
+            miseEnRelief.AppendLine("}");
+
+            final.AppendLine("");
+            final.AppendLine(miseEnRelief.ToString());
+            final.AppendLine("");
+
+            StringBuilder color = new StringBuilder();
+
+            var listeNodeFils2 = this.Traverse(DecisionTreeTraversal.DepthFirst).Where(x => x.IsLeaf).GroupBy(x => x.Output);
+
+            foreach (var group in listeNodeFils2)
+            {
+                color.AppendLine("nodes.getDataSet()._data[" + group.OrderByDescending(x => x.nbElements).First().ID + "]['color'] = 'rgba(155,89,182,1.0)';");
+            }
+            final.AppendLine(color.ToString());
+
+            return final.ToString();
+        }
+
+        /// <summary>
+        ///   return the vis javascript for this tree
+        /// </summary>
+        /// 
+        /// <returns>The tree's height.</returns>
+        /// 
+        public string ToJSJitTree(Codification codebook, string libelleCible,string[] tabColor)
+        {
+            StringBuilder builder = new StringBuilder();
+            int nombreTotal = Root.nbElements;
+
+
+
+            builder.AppendLine("json = ");
+            builder.AppendLine("{\"id\":\"" + this.Root.ID + "\",\"name\":\"root\",");
+            builder.AppendLine(this.Root.Branches.ToJitJSBranche(codebook, libelleCible, nombreTotal, tabColor, false));
+
+            builder.AppendLine("");
+            builder.AppendLine("");
+            builder.AppendLine("json2 = ");
+            builder.AppendLine("{\"id\":\"" + this.Root.ID + "\",\"name\":\"root\",\"data\":{\"$color\":\"#7ec0ee\"},");
+            
+            builder.AppendLine(this.Root.Branches.ToJitJSBranche(codebook, libelleCible, nombreTotal, tabColor, true));
+
+
+
+            return builder.ToString();
+
+        }
+
+
         /// <summary>
         ///   Loads a tree from a file.
         /// </summary>
@@ -453,10 +525,12 @@ namespace Accord.MachineLearning.DecisionTrees
         /// 
         /// <returns>The deserialized tree.</returns>
         /// 
-        [Obsolete("Please use Accord.IO.Serializer.Save() instead (or use it as an extension method).")]
         public void Save(string path)
         {
-            Accord.IO.Serializer.Save(this, path);
+            using (FileStream fs = new FileStream(path, FileMode.Create))
+            {
+                Save(fs);
+            }
         }
 
         /// <summary>
@@ -465,10 +539,10 @@ namespace Accord.MachineLearning.DecisionTrees
         /// 
         /// <param name="stream">The stream to which the tree is to be serialized.</param>
         /// 
-        [Obsolete("Please use Accord.IO.Serializer.Save() instead (or use it as an extension method).")]
         public void Save(Stream stream)
         {
-            Accord.IO.Serializer.Save(this, stream);
+            BinaryFormatter b = new BinaryFormatter();
+            b.Serialize(stream, this);
         }
 
         /// <summary>
@@ -479,10 +553,10 @@ namespace Accord.MachineLearning.DecisionTrees
         /// 
         /// <returns>The deserialized tree.</returns>
         /// 
-        [Obsolete("Please use Accord.IO.Serializer.Load() instead (or use it as an extension method).")]
         public static DecisionTree Load(Stream stream)
         {
-            return Accord.IO.Serializer.Load<DecisionTree>(stream);
+            BinaryFormatter b = new BinaryFormatter();
+            return (DecisionTree)b.Deserialize(stream);
         }
 
         /// <summary>
@@ -493,66 +567,14 @@ namespace Accord.MachineLearning.DecisionTrees
         /// 
         /// <returns>The deserialized tree.</returns>
         /// 
-        [Obsolete("Please use Accord.IO.Serializer.Load() instead (or use it as an extension method).")]
         public static DecisionTree Load(string path)
         {
-            return Accord.IO.Serializer.Load<DecisionTree>(path);
+            using (FileStream fs = new FileStream(path, FileMode.Open))
+            {
+                return Load(fs);
+            }
         }
 
-        /// <summary>
-        ///   Deprecated.
-        /// </summary>
-        /// 
-        [Obsolete("Please use NumberOfInputs instead.")]
-        public int OutputClasses { get { return NumberOfOutputs; } }
-
-        /// <summary>
-        ///   Deprecated.
-        /// </summary>
-        /// 
-        [Obsolete("Please use NumberOfInputs instead.")]
-        public int InputCount { get { return NumberOfInputs; } }
-
-        /// <summary>
-        ///   Deprecated.
-        /// </summary>
-        /// 
-        [Obsolete("Please use Decide instead.")]
-        public int Compute(int[] input)
-        {
-            return Decide(input);
-        }
-
-        /// <summary>
-        ///   Deprecated.
-        /// </summary>
-        /// 
-        [Obsolete("Please use Decide instead.")]
-        public int Compute(double[] input)
-        {
-            return Decide(input);
-        }
-
-        /// <summary>
-        ///   Deprecated.
-        /// </summary>
-        /// 
-        [Obsolete("Please use Decide instead.")]
-        public int[] Compute(int[][] input)
-        {
-            return Decide(input);
-        }
-
-        /// <summary>
-        ///   Deprecated.
-        /// </summary>
-        /// 
-        [Obsolete("Please use Decide instead.")]
-        public int Compute(double[] input, DecisionNode subtree)
-        {
-            return Decide(input, subtree);
-        }
-        #endregion
 
 
         private class TreeTraversal : IEnumerable<DecisionNode>
@@ -575,66 +597,9 @@ namespace Accord.MachineLearning.DecisionTrees
             {
                 return method(tree);
             }
-
         }
 
-
-        #region Serialization backwards compatibility
-
-        internal class DecisionTreeBinder : SerializationBinder
-        {
-            public override Type BindToType(string assemblyName, string typeName)
-            {
-                AssemblyName name = new AssemblyName(assemblyName);
-
-                if (name.Version < new Version(3, 1, 0))
-                {
-                    if (typeName == "Accord.MachineLearning.DecisionTrees.DecisionTree")
-                        return typeof(DecisionTree_2_13);
-                    if (typeName == "AForge.DoubleRange")
-                        return typeof(Accord.DoubleRange);
-                }
-
-                return null;
-            }
-        }
-
-#pragma warning disable 0169
-#pragma warning disable 0649
-
-        [Serializable]
-        class DecisionTree_2_13
-        {
-            public DecisionNode Root { get; set; }
-
-            public DecisionVariableCollection Attributes { get; private set; }
-            
-            public int OutputClasses { get; private set; }
-
-            public int InputCount { get; private set; }
-
-
-
-            public static implicit operator DecisionTree(DecisionTree_2_13 obj)
-            {
-                var tree = new DecisionTree(obj.Attributes, obj.OutputClasses);
-                tree.Root = obj.Root;
-
-                foreach (DecisionNode node in tree)
-                {
-                    if (node.Owner == null)
-                        node.Owner = tree;
-                }
-
-                return tree;
-            }
-        }
-
-#pragma warning restore 0169
-#pragma warning restore 0649
-
-        #endregion
-
+       
     }
 }
 
